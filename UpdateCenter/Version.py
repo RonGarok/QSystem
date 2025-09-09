@@ -28,9 +28,10 @@ def ecrire_version(chemin, version):
         f.write(f"Version={version}\n")
 
 def telecharger_fichier(path):
-    """Télécharge un fichier brut depuis GitHub dans BASE_DIR."""
     url = RAW_BASE_URL + path
-    local_path = os.path.join(BASE_DIR, path.replace("/", os.sep))
+    # ✅ Corriger ici pour viser le dossier racine
+    racine = os.path.dirname(BASE_DIR)
+    local_path = os.path.join(racine, path.replace("/", os.sep))
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     resp = requests.get(url, stream=True)
     resp.raise_for_status()
