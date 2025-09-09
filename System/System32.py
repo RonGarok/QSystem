@@ -85,7 +85,7 @@ class QSystemDesktop(QWidget):
             "Navigateurs": "https://www.google.com/",
             "Task Manager": "TaskManager.py",
             "UpdateCenter": os.path.join(os.path.dirname(os.path.dirname(__file__)), "UpdateCenter", "UpdateCenter.py"),
-            "Weather": "Wheather.py"
+            "Weather": "Wheather.py",
             "Éteindre": "shutdown"
         }
 
