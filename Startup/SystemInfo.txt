@@ -1,0 +1,7 @@
+Carte mère : Dell Inc. 051FJ8
+Processeur : Intel(R) Core(TM) i5-3470 CPU @ 3.20GHz
+RAM : 7.89 Go
+Carte graphique : Intel(R) HD Graphics
+Disque : KINGSTON SA400S37120G (111.79 Go)
+Disque : WDC WD2500BEVT-22ZCT0 (232.88 Go)
+Système : Windows 10 (10.0.19045)
