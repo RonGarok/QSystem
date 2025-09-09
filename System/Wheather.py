@@ -7,7 +7,7 @@ import requests
 import sys
 
 # 🔐 Ton token OpenWeather ici
-API_KEY = "TON_TOKEN_ICI"
+API_KEY = "c903658554525a8658baaabafd38d990"
 
 class WeatherApp(QMainWindow):
     def __init__(self):
