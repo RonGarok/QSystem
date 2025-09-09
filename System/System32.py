@@ -43,7 +43,7 @@ class QSystemDesktop(QWidget):
         taskbar.addWidget(q_button)
 
         # Boutons NotePad, Fichier, Calculatrice
-        for name, script in [("NotePad", "NotePad.py"), ("Fichier", "Fichier.py"), ("Calculatrice", "Calculator.py"), ("Python", "Python.py")]:
+        for name, script in [("NotePad", "NotePad.py"), ("Fichier", "Fichier.py"), ("Calculatrice", "Calculator.py"), ("Python", "Python.py"), ("Weather", "Wheather.py"]:
             btn = QPushButton(name)
             btn.setFixedSize(100, 30)
             btn.setStyleSheet("background-color: #444; color: white;")
