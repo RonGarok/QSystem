@@ -3,11 +3,10 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QMenu
 )
 from PyQt5.QtCore import Qt, QTimer, QDateTime
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QPixmap
 import sys
 import os
 import subprocess
-from art import text2art  # ✅ Correction ici
 
 class QSystemDesktop(QWidget):
     def __init__(self):
@@ -23,13 +22,18 @@ class QSystemDesktop(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # ASCII QSystem au centre
-        ascii_label = QLabel()
-        ascii_label.setFont(QFont("Courier", 14))
-        ascii_label.setStyleSheet("color: white;")
-        ascii_label.setAlignment(Qt.AlignCenter)
-        ascii_label.setText(text2art("QSystem"))  # ✅ Correction ici
-        layout.addWidget(ascii_label)
+        # 🖼️ Image de fond
+        bg_label = QLabel(self)
+        bg_label.setAlignment(Qt.AlignCenter)
+        bg_path = os.path.join(os.path.dirname(__file__), "BG.png")
+        pixmap = QPixmap(bg_path)
+        if not pixmap.isNull():
+            screen_size = QApplication.primaryScreen().size()
+            bg_label.setPixmap(pixmap.scaled(screen_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
+        else:
+            bg_label.setText("❌ BG.png introuvable")
+            bg_label.setStyleSheet("color: red; font-size: 18px;")
+        layout.addWidget(bg_label)
 
         # Barre des tâches
         taskbar = QHBoxLayout()
@@ -42,8 +46,14 @@ class QSystemDesktop(QWidget):
         q_button.setMenu(self.create_menu())
         taskbar.addWidget(q_button)
 
-        # Boutons NotePad, Fichier, Calculatrice
-        for name, script in [("NotePad", "NotePad.py"), ("Fichier", "Fichier.py"), ("Calculatrice", "Calculator.py"), ("Python", "Python.py"), ("Weather", "Wheather.py"]:
+        # Boutons d'apps
+        for name, script in [
+            ("NotePad", "NotePad.py"),
+            ("Fichier", "Fichier.py"),
+            ("Calculatrice", "Calculator.py"),
+            ("Python", "Python.py"),
+            ("Weather", "Weather.py")
+        ]:
             btn = QPushButton(name)
             btn.setFixedSize(100, 30)
             btn.setStyleSheet("background-color: #444; color: white;")
@@ -82,7 +92,8 @@ class QSystemDesktop(QWidget):
             "Zip": "Zip.py",
             "Task Manager": "TaskManager.py",
             "UpdateCenter": os.path.join(os.path.dirname(os.path.dirname(__file__)), "UpdateCenter", "UpdateCenter.py"),
-            "Weather": "Wheather.py",
+            "Weather": "Weather.py",
+            "BackGround": "ChangeBG.py",
             "Éteindre": "shutdown"
         }
 
