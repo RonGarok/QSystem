@@ -7,6 +7,8 @@ from PyQt5.QtGui import QFont, QPixmap
 import sys
 import os
 import subprocess
+from art import text2art  # ✅ Correction ici
+import ctypes
 
 class QSystemDesktop(QWidget):
     def __init__(self):
@@ -92,8 +94,11 @@ class QSystemDesktop(QWidget):
             "Zip": "Zip.py",
             "Task Manager": "TaskManager.py",
             "UpdateCenter": os.path.join(os.path.dirname(os.path.dirname(__file__)), "UpdateCenter", "UpdateCenter.py"),
+
             "Weather": "Weather.py",
             "BackGround": "ChangeBG.py",
+            "Weather": "Wheather.py",
+            "Reboot" : "reboot",
             "Éteindre": "shutdown"
         }
 
@@ -101,10 +106,18 @@ class QSystemDesktop(QWidget):
             act = menu.addAction(name)
             if action == "shutdown":
                 act.triggered.connect(self.shutdown)
+            elif action == "reboot":
+                act.triggered.connect(lambda: ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "L'option de reboot est encore en cours de développement",
+                    "SYSTEM ERROR",
+                    0x10
+                ))
             else:
                 act.triggered.connect(lambda _, s=action: self.lancer_script(s))
 
         return menu
+
 
     def lancer_script(self, script_name):
         chemin = os.path.join(os.path.dirname(__file__), script_name)
