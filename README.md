@@ -27,6 +27,7 @@ Le micro-logiciel `QMendel` permet :
 
 > Cette évolution marque une étape importante dans l'amélioration de QSystem.  
 > Préparez-vous à une expérience plus fluide, plus intuitive, et plus puissante.
+> Cette évolution arrive l'après-midi du 29 Octobre 2025
 
 ---
 
