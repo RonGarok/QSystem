@@ -14,7 +14,8 @@ APP_ROOT = os.path.normpath(os.path.join(THIS_DIR, "..", "..", "apps"))
 APPS = {
     "Fichier": "Fichier.py",
     "Calculatrice": "Calculator.py",
-    "ManagerCenter": "ManagerTool.py"
+    "ManagerCenter": "ManagerTool.py",
+    "Météo": "Wheater.py"
 }
 
 USER_FILE = os.path.join(THIS_DIR, "user.txt")
@@ -166,12 +167,13 @@ class MendelDesktop(QWidget):
         a_fichier = QAction("Fichier", self); a_fichier.triggered.connect(lambda: self.lancer_app("Fichier"))
         a_calc = QAction("Calculatrice", self); a_calc.triggered.connect(lambda: self.lancer_app("Calculatrice"))
         a_MANAGER = QAction("ManagerCenter", self); a_MANAGER.triggered.connect(lambda: self.lancer_app("ManagerCenter"))
+        a_METEO = QAction("Météo", self); a_MANAGER.triggered.connect(lambda: self.lancer_app("Météo"))
         a_quit = QAction("Quitter", self); a_quit.triggered.connect(lambda: QApplication.quit())
         start_menu.addAction(a_fichier); start_menu.addAction(a_calc); start_menu.addSeparator(); start_menu.addAction(a_quit)
         start_btn.setMenu(start_menu)
         taskbar_layout.addWidget(start_btn)
 
-        for name in ("Fichier", "Calculatrice", "ManagerCenter"):
+        for name in ("Fichier", "Calculatrice", "ManagerCenter", "Météo"):
             btn = QPushButton(name)
             btn.setFixedSize(110, 30)
             btn.setStyleSheet("""
@@ -210,6 +212,7 @@ class MendelDesktop(QWidget):
         menu.addAction("Fichier", lambda: self.lancer_app("Fichier"))
         menu.addAction("Calculatrice", lambda: self.lancer_app("Calculatrice"))
         menu.addAction("ManagerCenter", lambda: self.lancer_app("ManagerCenter"))
+        menu.addAction("Météo", lambda: self.lancer_app("Météo"))
         menu.exec_(self.mapToGlobal(pos))
 
     def lancer_app(self, name):
