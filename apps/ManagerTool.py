@@ -22,6 +22,7 @@ GITHUB_BRANCH = "Mendel"
 BOOT_SCRIPT = os.path.join("boot", "boot.py")
 UPDATE_TEMP_NAME = "_update_temp"
 UPDATE_LOG = "update.log"  # placed in project root
+USER_BACKUP_NAME = "_user_backup_user.txt"
 
 # ---------- Style ----------
 PANEL_STYLE = "QFrame { background-color: #2f2f2f; border-radius: 12px; }"
@@ -183,20 +184,9 @@ def find_best_source_root(temp_dir, project_root):
     return temp_dir
 
 def find_src_candidate(rel_path, source_root):
-    """
-    Try to locate the actual source file for a requested relative path.
-    Strategies:
-      1) exact path
-      2) case-insensitive path match walking down
-      3) fallback: find by basename search (if unique or best match)
-    Returns absolute path to candidate or None if not found.
-    """
-    # 1) exact
     candidate = os.path.join(source_root, rel_path.replace("/", os.path.sep))
     if os.path.exists(candidate):
         return candidate
-
-    # 2) case-insensitive path resolution (split and match each component)
     parts = rel_path.split("/")
     cur = source_root
     ok = True
@@ -218,8 +208,6 @@ def find_src_candidate(rel_path, source_root):
         cur = os.path.join(cur, matched)
     if ok and os.path.exists(cur):
         return cur
-
-    # 3) basename search
     basename = os.path.basename(rel_path)
     matches = []
     for dirpath, dirnames, filenames in os.walk(source_root):
@@ -230,16 +218,16 @@ def find_src_candidate(rel_path, source_root):
         return None
     if len(matches) == 1:
         return matches[0]
-    # multiple matches -> prefer one whose relative dir depth matches expected
-    # choose candidate with shortest path difference
     expected_dir = os.path.dirname(rel_path).replace("/", os.path.sep)
     best = None
     best_score = None
     for m in matches:
         rel = os.path.relpath(os.path.dirname(m), source_root)
-        # score: difference in common prefix length
-        common = os.path.commonpath([os.path.join(source_root, expected_dir), os.path.join(source_root, rel)]) if expected_dir else source_root
-        score = len(common)
+        try:
+            common = os.path.commonpath([os.path.join(source_root, expected_dir), os.path.join(source_root, rel)]) if expected_dir else source_root
+            score = len(common)
+        except Exception:
+            score = 0
         if best is None or score > best_score:
             best = m
             best_score = score
@@ -338,6 +326,30 @@ class ManagerTool(QWidget):
         write_log(project_root, f"Changed cwd to safe location: {safe_cwd}")
 
         temp_dir = os.path.join(project_root, UPDATE_TEMP_NAME)
+        backup_path = os.path.join(project_root, USER_BACKUP_NAME)
+        # Step A: back up user.txt from project_root/system/system/user.txt (if present) into project_root/_user_backup_user.txt
+        original_user_paths = [
+            os.path.join(project_root, "system", "system", "user.txt"),
+            os.path.join(project_root, "system", "user.txt"),
+            os.path.join(project_root, "user.txt"),
+        ]
+        user_found = None
+        try:
+            for p in original_user_paths:
+                if os.path.exists(p):
+                    user_found = p
+                    break
+            if user_found:
+                try:
+                    shutil.copy2(user_found, backup_path)
+                    write_log(project_root, f"Backed up user.txt from {user_found} to {backup_path}")
+                except Exception as e:
+                    write_log(project_root, f"Failed to back up user.txt from {user_found}: {e}")
+            else:
+                write_log(project_root, "No user.txt found to back up before update.")
+        except Exception as e:
+            write_log(project_root, f"User backup preparation error: {e}")
+
         try:
             if os.path.exists(temp_dir):
                 write_log(project_root, "Removing existing temp_dir")
@@ -380,13 +392,11 @@ class ManagerTool(QWidget):
                         raise
 
             for rel_path, original_hash in temp_files.items():
-                # locate source candidate robustly
                 src_candidate = find_src_candidate(rel_path, source_root)
                 if not src_candidate:
                     write_log(project_root, f"Source for {rel_path} not found in source_root ({source_root})")
                     raise FileNotFoundError(f"Source not found for {rel_path}")
 
-                # compute destination path from rel_path
                 dst = os.path.join(project_root, rel_path.replace("/", os.path.sep))
                 dst_dir = os.path.dirname(dst)
                 if not os.path.exists(dst_dir):
@@ -396,14 +406,11 @@ class ManagerTool(QWidget):
                         write_log(project_root, f"Failed to create parent dir {dst_dir} for {dst}: {e}")
                         raise
 
-                # move with robust fallback
                 try:
-                    # try fast rename first
                     try:
                         os.replace(src_candidate, dst)
                         write_log(project_root, f"Renamed {src_candidate} -> {dst}")
                     except Exception:
-                        # fallback to copy2 + remove
                         shutil.copy2(src_candidate, dst)
                         try:
                             os.remove(src_candidate)
@@ -414,7 +421,6 @@ class ManagerTool(QWidget):
                     write_log(project_root, f"Failed to move {src_candidate} -> {dst}: {e}")
                     raise
 
-                # verify hash when available
                 if original_hash:
                     try:
                         moved_hash = sha256_of_file(dst)
@@ -425,9 +431,28 @@ class ManagerTool(QWidget):
                         write_log(project_root, f"Hash verify error for {dst}: {e}")
                         raise
 
-            # cleanup temp_dir
             if os.path.exists(temp_dir):
                 safe_remove(temp_dir)
+
+            # Step B: restore user.txt backup into expected location inside project_root/system/system/user.txt
+            try:
+                if os.path.exists(backup_path):
+                    target_dir = os.path.join(project_root, "system", "system")
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir, exist_ok=True)
+                    target_path = os.path.join(target_dir, "user.txt")
+                    try:
+                        shutil.copy2(backup_path, target_path)
+                        write_log(project_root, f"Restored user.txt backup to {target_path}")
+                        # remove backup
+                        with suppress(Exception):
+                            os.remove(backup_path)
+                    except Exception as e:
+                        write_log(project_root, f"Failed to restore user.txt to {target_path}: {e}")
+                else:
+                    write_log(project_root, "No user backup present to restore after update.")
+            except Exception as e:
+                write_log(project_root, f"User restore error: {e}")
 
             write_log(project_root, "Update completed successfully and verified")
             self.status_label.setText("Mise à jour terminée. Démarrage du système...")
@@ -437,12 +462,30 @@ class ManagerTool(QWidget):
             write_log(project_root, f"Git clone failed: {e}")
             self.status_label.setText(f"Erreur git clone : {e}")
             self.update_btn.setEnabled(True)
+            # try to restore user backup if present
+            try:
+                if os.path.exists(backup_path):
+                    target_dir = os.path.join(project_root, "system", "system")
+                    os.makedirs(target_dir, exist_ok=True)
+                    shutil.copy2(backup_path, os.path.join(target_dir, "user.txt"))
+                    write_log(project_root, "Restored user backup after failed git clone")
+            except Exception:
+                pass
         except Exception as e:
             tb = traceback.format_exc()
             write_log(project_root, f"Update error: {e}")
             write_log(project_root, tb)
             self.status_label.setText(f"Erreur : {e}\nConsulte update.log")
             self.update_btn.setEnabled(True)
+            # attempt restore user backup
+            try:
+                if os.path.exists(backup_path):
+                    target_dir = os.path.join(project_root, "system", "system")
+                    os.makedirs(target_dir, exist_ok=True)
+                    shutil.copy2(backup_path, os.path.join(target_dir, "user.txt"))
+                    write_log(project_root, "Restored user backup after failed update")
+            except Exception as re:
+                write_log(project_root, f"Failed to restore user backup after error: {re}")
             return
 
     def launch_boot_and_close_mendel(self, project_root):
@@ -461,7 +504,6 @@ class ManagerTool(QWidget):
 
         best_effort_stop_mendel(project_root)
         QTimer.singleShot(300, lambda: QApplication.quit())
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
