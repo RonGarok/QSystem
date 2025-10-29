@@ -6,6 +6,7 @@ import subprocess
 import requests
 import traceback
 import stat
+import hashlib
 from contextlib import suppress
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QFrame
@@ -127,10 +128,8 @@ def best_effort_stop_mendel(project_root):
     # 2) Windows: try taskkill by window title
     if os.name == "nt":
         try:
-            # Try to kill windows whose title equals or contains "Mendel Desktop"
             with suppress(Exception):
                 subprocess.run(['taskkill', '/F', '/FI', 'WINDOWTITLE eq Mendel Desktop'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # fallback: kill python processes with 'Mendel Desktop' in commandline (best-effort)
             with suppress(Exception):
                 subprocess.run(['wmic', 'process', 'where', 'commandline like "%Mendel Desktop%"', 'call', 'terminate'],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=False)
@@ -146,63 +145,42 @@ def best_effort_stop_mendel(project_root):
         except Exception as e:
             write_log(project_root, f"Unix pkill error: {e}")
 
-def build_expected_map_from_tree(root_dir):
+def sha256_of_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def build_tree_info(root_dir):
     """
-    Build a mapping of filename -> list of relative paths where that filename exists in the tree.
-    Used to find where an existing file (misplaced) should be moved according to the repo structure.
+    Walk root_dir and return:
+      - files_info: dict relative_path -> sha256 (files only)
+      - dirs_set: set of relative_dir paths
+    Relative paths use '/' as separator and are rooted at '' (top-level entries have name)
     """
-    mapping = {}
+    files_info = {}
+    dirs_set = set()
     for dirpath, dirnames, filenames in os.walk(root_dir):
         rel_dir = os.path.relpath(dirpath, root_dir)
-        for name in filenames + dirnames:
-            if name == UPDATE_TEMP_NAME:
+        if rel_dir == ".":
+            rel_dir = ""
+        else:
+            rel_dir = rel_dir.replace(os.path.sep, "/")
+            dirs_set.add(rel_dir)
+        for d in dirnames:
+            rel = os.path.join(rel_dir, d).lstrip("./").replace(os.path.sep, "/")
+            dirs_set.add(rel)
+        for fname in filenames:
+            if fname == UPDATE_TEMP_NAME:
                 continue
-            rel_path = os.path.normpath(os.path.join(rel_dir, name)) if rel_dir != "." else name
-            mapping.setdefault(name, []).append(rel_path)
-    return mapping
-
-def relocate_misplaced_items(project_root, temp_dir):
-    """
-    Try to detect files/folders in project_root that are misplaced (same name exists in temp_dir tree)
-    and move them into the corresponding location inside temp_dir so the final move will place them correctly.
-    This helps preserve user files that reside in wrong locations compared to the repo layout.
-    """
-    try:
-        write_log(project_root, "Relocating misplaced items based on repo structure...")
-        expected = build_expected_map_from_tree(temp_dir)
-        # list items at project_root (top-level only)
-        for name in os.listdir(project_root):
-            if name == UPDATE_TEMP_NAME:
-                continue
-            src = os.path.join(project_root, name)
-            # if this name appears in expected with a non-top-level path, move it into temp_dir at expected path
-            if name in expected:
-                targets = expected[name]
-                # prefer targets that are not in root (i.e., subdirs)
-                chosen = None
-                for t in targets:
-                    if os.path.dirname(t) not in ("", "."):
-                        chosen = t
-                        break
-                if chosen is None:
-                    # all targets are top-level: leave as-is (will be replaced)
-                    continue
-                # destination inside temp_dir
-                dst = os.path.join(temp_dir, chosen)
-                dst_dir = os.path.dirname(dst)
-                if not os.path.exists(dst_dir):
-                    os.makedirs(dst_dir, exist_ok=True)
-                try:
-                    # if dst exists, we'll attempt to merge/overwrite carefully
-                    if os.path.exists(dst):
-                        # move into a subpath to avoid clobbering
-                        dst = os.path.join(dst_dir, name)
-                    shutil.move(src, dst)
-                    write_log(project_root, f"Relocated misplaced {src} -> {dst}")
-                except Exception as e:
-                    write_log(project_root, f"Failed to relocate {src} -> {dst}: {e}")
-    except Exception as e:
-        write_log(project_root, f"relocate_misplaced_items error: {e}")
+            rel = os.path.join(rel_dir, fname).lstrip("./").replace(os.path.sep, "/")
+            full = os.path.join(dirpath, fname)
+            try:
+                files_info[rel] = sha256_of_file(full)
+            except Exception:
+                files_info[rel] = None
+    return files_info, dirs_set
 
 # ---------- Main GUI ----------
 class ManagerTool(QWidget):
@@ -293,14 +271,14 @@ class ManagerTool(QWidget):
 
     def download_and_replace(self):
         """
-        1. Determine project_root (parent of apps)
-        2. Change cwd to parent of project_root for safety
-        3. Clone into temp_dir
-        4. Relocate misplaced items (based on repo structure) into temp_dir
-        5. Best-effort stop Mendel Desktop
-        6. Delete project_root contents (except temp)
-        7. Move new files, clean temp
-        8. Launch boot.py and exit
+        Strict update process:
+        - clone repo branch into temp_dir
+        - build tree info (relative paths + hashes) from temp_dir
+        - remove old content (everything except temp_dir)
+        - move each file/dir from temp_dir to project_root one by one,
+          verifying file hashes after move
+        - if any verification fails, abort and log; temp_dir retained for debug
+        - if all OK, cleanup temp_dir, launch boot.py and exit
         """
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         write_log(project_root, "=== update started ===")
@@ -325,8 +303,10 @@ class ManagerTool(QWidget):
             write_log(project_root, f"Cloning {GITHUB_REPO_URL} branch {GITHUB_BRANCH} into {temp_dir}")
             subprocess.run(["git", "clone", "--branch", GITHUB_BRANCH, GITHUB_REPO_URL, temp_dir], check=True)
 
-            # relocate misplaced items (try to preserve user files placed in wrong locations)
-            relocate_misplaced_items(project_root, temp_dir)
+            # build tree info from temp_dir
+            write_log(project_root, "Building tree info from cloned repo...")
+            temp_files, temp_dirs = build_tree_info(temp_dir)
+            write_log(project_root, f"Cloned files: {len(temp_files)}, dirs: {len(temp_dirs)}")
 
             # attempt to stop Mendel Desktop to release locks
             best_effort_stop_mendel(project_root)
@@ -340,20 +320,66 @@ class ManagerTool(QWidget):
                 write_log(project_root, f"Removing {full}")
                 safe_remove(full)
 
-            # move contents from temp_dir to project_root
-            write_log(project_root, "Moving new files into project root...")
-            for item in os.listdir(temp_dir):
-                src = os.path.join(temp_dir, item)
-                dst = os.path.join(project_root, item)
-                # use shutil.move which handles cross-device moves
-                shutil.move(src, dst)
-                write_log(project_root, f"Moved {src} -> {dst}")
+            # now move contents from temp_dir to project_root ONE BY ONE with verification
+            write_log(project_root, "Moving and verifying files one by one...")
+            # First create all directories
+            dirs_sorted = sorted(temp_dirs, key=lambda x: x.count("/"))  # parents first
+            for drel in dirs_sorted:
+                dst_dir = os.path.join(project_root, drel.replace("/", os.path.sep))
+                if not os.path.exists(dst_dir):
+                    try:
+                        os.makedirs(dst_dir, exist_ok=True)
+                        write_log(project_root, f"Created dir {dst_dir}")
+                    except Exception as e:
+                        write_log(project_root, f"Failed to create dir {dst_dir}: {e}")
+                        raise
+
+            # Then move files
+            for rel_path, original_hash in temp_files.items():
+                src = os.path.join(temp_dir, rel_path.replace("/", os.path.sep))
+                dst = os.path.join(project_root, rel_path.replace("/", os.path.sep))
+                dst_dir = os.path.dirname(dst)
+                if not os.path.exists(dst_dir):
+                    try:
+                        os.makedirs(dst_dir, exist_ok=True)
+                    except Exception as e:
+                        write_log(project_root, f"Failed to create parent dir {dst_dir} for {dst}: {e}")
+                        raise
+                try:
+                    # move file
+                    shutil.move(src, dst)
+                    write_log(project_root, f"Moved file {src} -> {dst}")
+                except Exception as e:
+                    write_log(project_root, f"Failed to move {src} -> {dst}: {e}")
+                    raise
+
+                # verify hash
+                try:
+                    moved_hash = sha256_of_file(dst)
+                except Exception as e:
+                    write_log(project_root, f"Failed to hash moved file {dst}: {e}")
+                    raise
+                if original_hash is None:
+                    write_log(project_root, f"Warning: original hash missing for {rel_path}, cannot verify precisely")
+                elif moved_hash != original_hash:
+                    write_log(project_root, f"Hash mismatch for {rel_path}: original {original_hash} vs moved {moved_hash}")
+                    raise RuntimeError(f"Hash mismatch for {rel_path}")
+
+            # After all moves, ensure no leftover files under temp_dir (should be empty)
+            remaining = []
+            for root, dirs, files in os.walk(temp_dir):
+                for f in files:
+                    remaining.append(os.path.join(root, f))
+                for d in dirs:
+                    remaining.append(os.path.join(root, d))
+            if remaining:
+                write_log(project_root, f"Warning: leftover items in temp_dir: {remaining}")
 
             # cleanup temp_dir
             if os.path.exists(temp_dir):
                 safe_remove(temp_dir)
 
-            write_log(project_root, "Update completed successfully")
+            write_log(project_root, "Update completed successfully and verified")
             self.status_label.setText("Mise à jour terminée. Démarrage du système...")
             QTimer.singleShot(800, lambda: self.launch_boot_and_close_mendel(project_root))
 
@@ -365,8 +391,10 @@ class ManagerTool(QWidget):
             tb = traceback.format_exc()
             write_log(project_root, f"Update error: {e}")
             write_log(project_root, tb)
-            self.status_label.setText(f"Erreur : {e}")
+            # keep temp_dir for inspection, do not remove it if verification failed
+            self.status_label.setText(f"Erreur : {e}\nConsulte update.log")
             self.update_btn.setEnabled(True)
+            return
 
     # ---------- launch and finish ----------
     def launch_boot_and_close_mendel(self, project_root):
