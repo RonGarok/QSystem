@@ -9,11 +9,12 @@ from PyQt5.QtCore import Qt, QTimer, QDateTime, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont, QPixmap
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-APP_ROOT = os.path.normpath(os.path.join(THIS_DIR, "..", "apps"))
+APP_ROOT = os.path.normpath(os.path.join(THIS_DIR, "..", "..", "apps"))
 
 APPS = {
     "Fichier": "Fichier.py",
-    "Calculatrice": "Calculator.py"
+    "Calculatrice": "Calculator.py",
+    "ManagerCenter": "ManagerTool.py"
 }
 
 USER_FILE = os.path.join(THIS_DIR, "user.txt")
@@ -22,11 +23,7 @@ def read_username():
     try:
         with open(USER_FILE, "r", encoding="utf-8") as f:
             content = f.read().strip()
-            if ":" in content:
-                username = content.split(":", 1)[0]
-            else:
-                username = content or "Utilisateur"
-            return username
+            return content.split(":", 1)[0] if ":" in content else content or "Utilisateur"
     except Exception:
         return "Utilisateur"
 
@@ -111,15 +108,17 @@ class MendelDesktop(QWidget):
         self.init_ui()
         self.showFullScreen()
 
+    def _create_layout(self, parent, spacing=0):
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(spacing)
+        return layout
+
     def init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout = self._create_layout(self)
 
         content = QFrame(self)
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
+        content_layout = self._create_layout(content)
 
         bg_label = QLabel(self)
         bg_label.setAlignment(Qt.AlignCenter)
@@ -166,12 +165,13 @@ class MendelDesktop(QWidget):
         start_menu.setStyleSheet(DARK_MENU_QSS)
         a_fichier = QAction("Fichier", self); a_fichier.triggered.connect(lambda: self.lancer_app("Fichier"))
         a_calc = QAction("Calculatrice", self); a_calc.triggered.connect(lambda: self.lancer_app("Calculatrice"))
+        a_MANAGER = QAction("ManagerCenter", self); a_MANAGER.triggered.connect(lambda: self.lancer_app("ManagerCenter"))
         a_quit = QAction("Quitter", self); a_quit.triggered.connect(lambda: QApplication.quit())
         start_menu.addAction(a_fichier); start_menu.addAction(a_calc); start_menu.addSeparator(); start_menu.addAction(a_quit)
         start_btn.setMenu(start_menu)
         taskbar_layout.addWidget(start_btn)
 
-        for name in ("Fichier", "Calculatrice"):
+        for name in ("Fichier", "Calculatrice", "ManagerCenter"):
             btn = QPushButton(name)
             btn.setFixedSize(110, 30)
             btn.setStyleSheet("""
@@ -209,6 +209,7 @@ class MendelDesktop(QWidget):
         menu.setStyleSheet("QMenu{background:#2b2b2b;color:#fff;} QMenu::item:selected{background:#3a3a3a;}")
         menu.addAction("Fichier", lambda: self.lancer_app("Fichier"))
         menu.addAction("Calculatrice", lambda: self.lancer_app("Calculatrice"))
+        menu.addAction("ManagerCenter", lambda: self.lancer_app("ManagerCenter"))
         menu.exec_(self.mapToGlobal(pos))
 
     def lancer_app(self, name):

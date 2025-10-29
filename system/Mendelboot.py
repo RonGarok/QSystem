@@ -4,6 +4,7 @@ import time
 import subprocess
 import traceback
 import shutil
+from contextlib import suppress
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit, QPushButton,
     QVBoxLayout, QMessageBox, QFrame
@@ -158,8 +159,7 @@ class AuthWindow(QWidget):
     def clear_panel(self):
         while self.panel_layout.count():
             item = self.panel_layout.takeAt(0)
-            w = item.widget()
-            if w:
+            if (w := item.widget()):
                 w.setParent(None)
 
     def make_dark_messagebox(self, title, text, icon=QMessageBox.Information):
@@ -263,10 +263,7 @@ class AuthWindow(QWidget):
             try:
                 with open(USER_FILE, "r", encoding="utf-8") as f:
                     content = f.read().strip()
-                    if ":" in content:
-                        username, password = content.split(":", 1)
-                    else:
-                        username, password = content, ""
+                    username, password = content.split(":", 1) if ":" in content else (content, "")
                     return username, password
             except Exception:
                 return None, None
@@ -319,6 +316,34 @@ class AuthWindow(QWidget):
         timer.timeout.connect(step)
         timer.start(30)
 
+    def _start_system32_subprocess(self, cmd, launch_log_f):
+        try:
+            if os.name == "nt":
+                CREATE_NO_WINDOW = 0x08000000
+                CREATE_NEW_PROCESS_GROUP = 0x00000200
+                creationflags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+                if launch_log_f:
+                    subprocess.Popen(cmd, creationflags=creationflags,
+                                     stdout=launch_log_f, stderr=launch_log_f)
+                else:
+                    subprocess.Popen(cmd, creationflags=creationflags)
+            elif launch_log_f:
+                subprocess.Popen(cmd, start_new_session=True, stdout=launch_log_f, stderr=launch_log_f)
+            else:
+                subprocess.Popen(cmd, start_new_session=True)
+
+            if launch_log_f:
+                launch_log_f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] subprocess.Popen ok\n")
+                launch_log_f.close()
+
+            return True
+        except Exception:
+            tb = traceback.format_exc()
+            with suppress(Exception):
+                mb = self.make_dark_messagebox("Erreur", "Erreur au lancement. Voir mendel_error.log", QMessageBox.Critical)
+                mb.exec_()
+            return False
+
     def launch_system32_and_copy_user(self):
         """
         Copie user.txt dans le sous-dossier system (si présent),
@@ -364,33 +389,13 @@ class AuthWindow(QWidget):
             except Exception:
                 launch_log_f = None
 
-            if os.name == "nt":
-                CREATE_NO_WINDOW = 0x08000000
-                CREATE_NEW_PROCESS_GROUP = 0x00000200
-                if launch_log_f:
-                    subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
-                                     stdout=launch_log_f, stderr=launch_log_f)
-                else:
-                    subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
-            else:
-                if launch_log_f:
-                    subprocess.Popen(cmd, start_new_session=True, stdout=launch_log_f, stderr=launch_log_f)
-                else:
-                    subprocess.Popen(cmd, start_new_session=True)
-
-            if launch_log_f:
-                launch_log_f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] subprocess.Popen ok\n")
-                launch_log_f.close()
-
-            return True
+            return self._start_system32_subprocess(cmd, launch_log_f)
         except Exception:
             tb = traceback.format_exc()
             write_error_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Erreur lancement system32:\n{tb}")
-            try:
+            with suppress(Exception):
                 mb = self.make_dark_messagebox("Erreur", "Erreur au lancement. Voir mendel_error.log", QMessageBox.Critical)
                 mb.exec_()
-            except Exception:
-                pass
             return False
 
 if __name__ == "__main__":
@@ -403,15 +408,9 @@ if __name__ == "__main__":
     except Exception:
         tb = traceback.format_exc()
         write_error_log(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Exception non gérée dans main:\n{tb}")
-        try:
-            if QApplication.instance() is None:
-                tmp_app = QApplication(sys.argv)
-            else:
-                tmp_app = QApplication.instance()
+        with suppress(Exception):
+            tmp_app = QApplication(sys.argv) if QApplication.instance() is None else QApplication.instance()
             msg = QMessageBox()
             msg.setWindowTitle("Erreur critique")
             msg.setText("Une erreur critique est survenue. Voir mendel_error.log")
             msg.exec_()
-        except Exception:
-            pass
-        sys.exit(1)

@@ -1,0 +1,19 @@
+[2025-10-29 14:12:04] Copie OK: S:\QSystem\system\user.txt -> S:\QSystem\system\system\user.txt
+
+[2025-10-29 14:12:04] Lancement: ['C:\\Users\\Aaron\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'S:\\QSystem\\system\\system\\system32.py', '--mendel-fullscreen']
+[2025-10-29 14:12:04] subprocess.Popen ok
+Script introuvable pour Fichier: S:\QSystem\system\apps\Fichier.py
+Script introuvable pour Calculatrice: S:\QSystem\system\apps\Calculator.py
+[2025-10-29 14:21:34] Copie OK: S:\QSystem\system\user.txt -> S:\QSystem\system\system\user.txt
+
+[2025-10-29 14:21:34] Lancement: ['C:\\Users\\Aaron\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'S:\\QSystem\\system\\system\\system32.py', '--mendel-fullscreen']
+[2025-10-29 14:21:34] subprocess.Popen ok
+Script introuvable pour Fichier: S:\QSystem\system\apps\Fichier.py
+[2025-10-29 14:23:48] Copie OK: S:\QSystem\system\user.txt -> S:\QSystem\system\system\user.txt
+
+[2025-10-29 14:23:48] Lancement: ['C:\\Users\\Aaron\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'S:\\QSystem\\system\\system\\system32.py', '--mendel-fullscreen']
+[2025-10-29 14:23:48] subprocess.Popen ok
+[2025-10-29 14:25:19] Copie OK: S:\QSystem\system\user.txt -> S:\QSystem\system\system\user.txt
+
+[2025-10-29 14:25:19] Lancement: ['C:\\Users\\Aaron\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'S:\\QSystem\\system\\system\\system32.py', '--mendel-fullscreen']
+[2025-10-29 14:25:19] subprocess.Popen ok
