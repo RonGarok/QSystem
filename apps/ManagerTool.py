@@ -162,26 +162,14 @@ def build_tree_info(root_dir):
     return files_info, dirs_set
 
 def find_best_source_root(temp_dir, project_root):
-    """
-    Heuristic to find the directory inside temp_dir that should be used as the source root
-    to copy/move into project_root. This avoids creating extra nested 'system' levels.
-    Strategy:
-      - If temp_dir contains exactly one non-hidden directory, consider that first.
-      - Otherwise search up to depth 2 for a directory that contains indicators:
-          'system' dir, 'boot' dir, 'Mendelboot.py' file.
-      - Prefer the directory closest to root that contains indicators.
-    """
     try:
         entries = [e for e in os.listdir(temp_dir) if not e.startswith('.')]
-        # If single top-level directory, consider it first
         if len(entries) == 1:
             single = os.path.join(temp_dir, entries[0])
             if os.path.isdir(single):
-                # if this single dir already contains the structure we expect, use it
                 inner = set(os.listdir(single))
                 if "system" in inner or "boot" in inner or "Mendelboot.py" in inner:
                     return single
-        # BFS up to depth 2
         for dirpath, dirnames, filenames in os.walk(temp_dir):
             rel = os.path.relpath(dirpath, temp_dir)
             depth = 0 if rel == "." else rel.count(os.path.sep) + 1
@@ -193,6 +181,69 @@ def find_best_source_root(temp_dir, project_root):
     except Exception:
         pass
     return temp_dir
+
+def find_src_candidate(rel_path, source_root):
+    """
+    Try to locate the actual source file for a requested relative path.
+    Strategies:
+      1) exact path
+      2) case-insensitive path match walking down
+      3) fallback: find by basename search (if unique or best match)
+    Returns absolute path to candidate or None if not found.
+    """
+    # 1) exact
+    candidate = os.path.join(source_root, rel_path.replace("/", os.path.sep))
+    if os.path.exists(candidate):
+        return candidate
+
+    # 2) case-insensitive path resolution (split and match each component)
+    parts = rel_path.split("/")
+    cur = source_root
+    ok = True
+    for p in parts:
+        try:
+            entries = os.listdir(cur)
+        except Exception:
+            ok = False
+            break
+        matched = None
+        low = p.lower()
+        for e in entries:
+            if e.lower() == low:
+                matched = e
+                break
+        if matched is None:
+            ok = False
+            break
+        cur = os.path.join(cur, matched)
+    if ok and os.path.exists(cur):
+        return cur
+
+    # 3) basename search
+    basename = os.path.basename(rel_path)
+    matches = []
+    for dirpath, dirnames, filenames in os.walk(source_root):
+        for fname in filenames:
+            if fname.lower() == basename.lower():
+                matches.append(os.path.join(dirpath, fname))
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    # multiple matches -> prefer one whose relative dir depth matches expected
+    # choose candidate with shortest path difference
+    expected_dir = os.path.dirname(rel_path).replace("/", os.path.sep)
+    best = None
+    best_score = None
+    for m in matches:
+        rel = os.path.relpath(os.path.dirname(m), source_root)
+        # score: difference in common prefix length
+        common = os.path.commonpath([os.path.join(source_root, expected_dir), os.path.join(source_root, rel)]) if expected_dir else source_root
+        score = len(common)
+        if best is None or score > best_score:
+            best = m
+            best_score = score
+    return best
 
 # ---------- Main GUI ----------
 class ManagerTool(QWidget):
@@ -301,16 +352,13 @@ class ManagerTool(QWidget):
 
             best_effort_stop_mendel(project_root)
 
-            # Determine proper source root to avoid extra nesting
             source_root = find_best_source_root(temp_dir, project_root)
             write_log(project_root, f"Determined source_root: {source_root}")
 
-            # If source_root differs from temp_dir, rebuild tree info from source_root
             if os.path.abspath(source_root) != os.path.abspath(temp_dir):
                 write_log(project_root, "Rebuilding tree info from adjusted source_root...")
                 temp_files, temp_dirs = build_tree_info(source_root)
 
-            # Remove everything in project_root except temp_dir (we keep temp_dir until verified)
             write_log(project_root, "Removing old project files (best-effort)...")
             for item in os.listdir(project_root):
                 if item == UPDATE_TEMP_NAME:
@@ -319,7 +367,7 @@ class ManagerTool(QWidget):
                 write_log(project_root, f"Removing {full}")
                 safe_remove(full)
 
-            # Create directories (parents first)
+            write_log(project_root, "Moving and verifying files one by one...")
             dirs_sorted = sorted(temp_dirs, key=lambda x: x.count("/"))
             for drel in dirs_sorted:
                 dst_dir = os.path.join(project_root, drel.replace("/", os.path.sep))
@@ -331,9 +379,14 @@ class ManagerTool(QWidget):
                         write_log(project_root, f"Failed to create dir {dst_dir}: {e}")
                         raise
 
-            # Move files one by one from source_root (respecting relative paths)
             for rel_path, original_hash in temp_files.items():
-                src = os.path.join(source_root, rel_path.replace("/", os.path.sep))
+                # locate source candidate robustly
+                src_candidate = find_src_candidate(rel_path, source_root)
+                if not src_candidate:
+                    write_log(project_root, f"Source for {rel_path} not found in source_root ({source_root})")
+                    raise FileNotFoundError(f"Source not found for {rel_path}")
+
+                # compute destination path from rel_path
                 dst = os.path.join(project_root, rel_path.replace("/", os.path.sep))
                 dst_dir = os.path.dirname(dst)
                 if not os.path.exists(dst_dir):
@@ -342,13 +395,26 @@ class ManagerTool(QWidget):
                     except Exception as e:
                         write_log(project_root, f"Failed to create parent dir {dst_dir} for {dst}: {e}")
                         raise
+
+                # move with robust fallback
                 try:
-                    shutil.move(src, dst)
-                    write_log(project_root, f"Moved file {src} -> {dst}")
+                    # try fast rename first
+                    try:
+                        os.replace(src_candidate, dst)
+                        write_log(project_root, f"Renamed {src_candidate} -> {dst}")
+                    except Exception:
+                        # fallback to copy2 + remove
+                        shutil.copy2(src_candidate, dst)
+                        try:
+                            os.remove(src_candidate)
+                        except Exception:
+                            pass
+                        write_log(project_root, f"Copied {src_candidate} -> {dst} (fallback)")
                 except Exception as e:
-                    write_log(project_root, f"Failed to move {src} -> {dst}: {e}")
+                    write_log(project_root, f"Failed to move {src_candidate} -> {dst}: {e}")
                     raise
 
+                # verify hash when available
                 if original_hash:
                     try:
                         moved_hash = sha256_of_file(dst)
@@ -359,13 +425,9 @@ class ManagerTool(QWidget):
                         write_log(project_root, f"Hash verify error for {dst}: {e}")
                         raise
 
-            # Clean any leftover items inside temp_dir (if source_root was a subdir we removed moved files; remove now)
+            # cleanup temp_dir
             if os.path.exists(temp_dir):
-                # If source_root is a subdir, remove it specifically; else remove temp_dir
-                try:
-                    safe_remove(temp_dir)
-                except Exception:
-                    write_log(project_root, "Failed to remove temp_dir after move (non-fatal)")
+                safe_remove(temp_dir)
 
             write_log(project_root, "Update completed successfully and verified")
             self.status_label.setText("Mise à jour terminée. Démarrage du système...")
@@ -399,6 +461,7 @@ class ManagerTool(QWidget):
 
         best_effort_stop_mendel(project_root)
         QTimer.singleShot(300, lambda: QApplication.quit())
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
