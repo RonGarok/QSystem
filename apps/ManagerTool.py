@@ -146,6 +146,64 @@ def best_effort_stop_mendel(project_root):
         except Exception as e:
             write_log(project_root, f"Unix pkill error: {e}")
 
+def build_expected_map_from_tree(root_dir):
+    """
+    Build a mapping of filename -> list of relative paths where that filename exists in the tree.
+    Used to find where an existing file (misplaced) should be moved according to the repo structure.
+    """
+    mapping = {}
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        rel_dir = os.path.relpath(dirpath, root_dir)
+        for name in filenames + dirnames:
+            if name == UPDATE_TEMP_NAME:
+                continue
+            rel_path = os.path.normpath(os.path.join(rel_dir, name)) if rel_dir != "." else name
+            mapping.setdefault(name, []).append(rel_path)
+    return mapping
+
+def relocate_misplaced_items(project_root, temp_dir):
+    """
+    Try to detect files/folders in project_root that are misplaced (same name exists in temp_dir tree)
+    and move them into the corresponding location inside temp_dir so the final move will place them correctly.
+    This helps preserve user files that reside in wrong locations compared to the repo layout.
+    """
+    try:
+        write_log(project_root, "Relocating misplaced items based on repo structure...")
+        expected = build_expected_map_from_tree(temp_dir)
+        # list items at project_root (top-level only)
+        for name in os.listdir(project_root):
+            if name == UPDATE_TEMP_NAME:
+                continue
+            src = os.path.join(project_root, name)
+            # if this name appears in expected with a non-top-level path, move it into temp_dir at expected path
+            if name in expected:
+                targets = expected[name]
+                # prefer targets that are not in root (i.e., subdirs)
+                chosen = None
+                for t in targets:
+                    if os.path.dirname(t) not in ("", "."):
+                        chosen = t
+                        break
+                if chosen is None:
+                    # all targets are top-level: leave as-is (will be replaced)
+                    continue
+                # destination inside temp_dir
+                dst = os.path.join(temp_dir, chosen)
+                dst_dir = os.path.dirname(dst)
+                if not os.path.exists(dst_dir):
+                    os.makedirs(dst_dir, exist_ok=True)
+                try:
+                    # if dst exists, we'll attempt to merge/overwrite carefully
+                    if os.path.exists(dst):
+                        # move into a subpath to avoid clobbering
+                        dst = os.path.join(dst_dir, name)
+                    shutil.move(src, dst)
+                    write_log(project_root, f"Relocated misplaced {src} -> {dst}")
+                except Exception as e:
+                    write_log(project_root, f"Failed to relocate {src} -> {dst}: {e}")
+    except Exception as e:
+        write_log(project_root, f"relocate_misplaced_items error: {e}")
+
 # ---------- Main GUI ----------
 class ManagerTool(QWidget):
     def __init__(self):
@@ -238,10 +296,11 @@ class ManagerTool(QWidget):
         1. Determine project_root (parent of apps)
         2. Change cwd to parent of project_root for safety
         3. Clone into temp_dir
-        4. Best-effort stop Mendel Desktop
-        5. Delete project_root contents (except temp)
-        6. Move new files, clean temp
-        7. Launch boot.py and exit
+        4. Relocate misplaced items (based on repo structure) into temp_dir
+        5. Best-effort stop Mendel Desktop
+        6. Delete project_root contents (except temp)
+        7. Move new files, clean temp
+        8. Launch boot.py and exit
         """
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         write_log(project_root, "=== update started ===")
@@ -265,6 +324,9 @@ class ManagerTool(QWidget):
             # clone repository branch
             write_log(project_root, f"Cloning {GITHUB_REPO_URL} branch {GITHUB_BRANCH} into {temp_dir}")
             subprocess.run(["git", "clone", "--branch", GITHUB_BRANCH, GITHUB_REPO_URL, temp_dir], check=True)
+
+            # relocate misplaced items (try to preserve user files placed in wrong locations)
+            relocate_misplaced_items(project_root, temp_dir)
 
             # attempt to stop Mendel Desktop to release locks
             best_effort_stop_mendel(project_root)
