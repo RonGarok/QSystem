@@ -1,3 +1,4 @@
+# system32.py
 import sys
 import os
 import subprocess
@@ -11,6 +12,7 @@ from PyQt5.QtGui import QFont, QPixmap
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_ROOT = os.path.normpath(os.path.join(THIS_DIR, "..", "..", "apps"))
 
+# mapping friendly name -> filename (kept as hint; dynamic discovery will augment)
 APPS = {
     "Fichier": "Fichier.py",
     "Calculatrice": "Calculator.py",
@@ -20,6 +22,7 @@ APPS = {
 
 USER_FILE = os.path.join(THIS_DIR, "user.txt")
 
+
 def read_username():
     try:
         with open(USER_FILE, "r", encoding="utf-8") as f:
@@ -27,6 +30,34 @@ def read_username():
             return content.split(":", 1)[0] if ":" in content else content or "Utilisateur"
     except Exception:
         return "Utilisateur"
+
+
+def discover_apps(apps_dir):
+    """
+    Discover .py files in apps_dir and return dict display_name -> filename.
+    Prefers names from APPS mapping, otherwise uses filename without extension.
+    Ignores __init__.py and files starting with underscore.
+    """
+    results = {}
+    try:
+        for entry in sorted(os.listdir(apps_dir)):
+            if not entry.endswith(".py"):
+                continue
+            if entry == "__init__.py" or entry.startswith("_"):
+                continue
+            # find friendly name from APPS mapping first
+            friendly = None
+            for k, v in APPS.items():
+                if os.path.normcase(v) == os.path.normcase(entry):
+                    friendly = k
+                    break
+            if not friendly:
+                friendly = os.path.splitext(entry)[0]
+            results[friendly] = entry
+    except Exception:
+        pass
+    return results
+
 
 class Splash(QWidget):
     def __init__(self, text, duration=2000, parent=None):
@@ -60,7 +91,6 @@ class Splash(QWidget):
         v.addWidget(label)
         layout.addWidget(container, alignment=Qt.AlignCenter)
 
-        # Opacity effect
         self.effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.effect)
         self.effect.setOpacity(0.0)
@@ -68,14 +98,12 @@ class Splash(QWidget):
     def show_with_fade(self, finished_callback):
         self.showFullScreen()
 
-        # Fade in
         self.anim_in = QPropertyAnimation(self.effect, b"opacity")
         self.anim_in.setDuration(600)
         self.anim_in.setStartValue(0.0)
         self.anim_in.setEndValue(1.0)
         self.anim_in.setEasingCurve(QEasingCurve.InOutQuad)
 
-        # Pause then fade out
         def start_fade_out():
             self.anim_out.start()
 
@@ -86,9 +114,9 @@ class Splash(QWidget):
         self.anim_out.setEasingCurve(QEasingCurve.InOutQuad)
         self.anim_out.finished.connect(lambda: (self.close(), finished_callback()))
 
-        # Sequence
         self.anim_in.finished.connect(lambda: QTimer.singleShot(self.duration, start_fade_out))
         self.anim_in.start()
+
 
 class MendelDesktop(QWidget):
     def __init__(self):
@@ -98,10 +126,10 @@ class MendelDesktop(QWidget):
         self.setStyleSheet("background-color: black;")
         self.apps_dir = APP_ROOT
 
-        # Grand M orange en haut à gauche
         self.logo_big = QLabel("M", self)
         self.logo_big.setFont(QFont("Arial", 160, QFont.Bold))
         self.logo_big.setStyleSheet("color: orange;")
+        self.logo_big.setAttribute(Qt.WA_TranslucentBackground)
         self.logo_big.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.logo_big.resize(220, 200)
         self.logo_big.move(10, 10)
@@ -156,6 +184,7 @@ class MendelDesktop(QWidget):
             }
             QPushButton:pressed { background-color: #ff8c00; }
         """)
+
         start_menu = QMenu(self)
         DARK_MENU_QSS = """
         QMenu { background-color: #2b2b2b; color: #ffffff; border: 1px solid #3d3d3d; padding: 6px; }
@@ -164,17 +193,50 @@ class MendelDesktop(QWidget):
         QMenu::separator { height: 1px; background: #3d3d3d; margin: 4px 0; }
         """
         start_menu.setStyleSheet(DARK_MENU_QSS)
-        a_fichier = QAction("Fichier", self); a_fichier.triggered.connect(lambda: self.lancer_app("Fichier"))
-        a_calc = QAction("Calculatrice", self); a_calc.triggered.connect(lambda: self.lancer_app("Calculatrice"))
-        a_MANAGER = QAction("ManagerCenter", self); a_MANAGER.triggered.connect(lambda: self.lancer_app("ManagerCenter"))
-        a_METEO = QAction("Météo", self); a_MANAGER.triggered.connect(lambda: self.lancer_app("Météo"))
-        a_quit = QAction("Quitter", self); a_quit.triggered.connect(lambda: QApplication.quit())
-        start_menu.addAction(a_fichier); start_menu.addAction(a_calc); start_menu.addSeparator(); start_menu.addAction(a_quit)
+
+        # Populate start menu dynamically from apps folder
+        discovered = discover_apps(self.apps_dir)
+        for display_name, filename in discovered.items():
+            action = QAction(display_name, self)
+            action.triggered.connect(lambda checked=False, n=display_name: self.lancer_app(n))
+            start_menu.addAction(action)
+
+        start_menu.addSeparator()
+
+        # Reboot action: replace current process with ManagerTool.py using os.execv
+        def action_reboot():
+            mgr_name = "ManagerTool.py"
+            mgr_path = None
+            discovered_local = discover_apps(self.apps_dir)
+            for dname, fname in discovered_local.items():
+                if os.path.normcase(fname) == os.path.normcase(mgr_name) or dname.lower().startswith("manager"):
+                    candidate = os.path.join(self.apps_dir, fname)
+                    if os.path.exists(candidate):
+                        mgr_path = os.path.abspath(candidate)
+                        break
+            if mgr_path:
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                try:
+                    os.execv(sys.executable, [sys.executable, mgr_path])
+                except Exception as e:
+                    print("Reboot execv failed:", e)
+                    QApplication.quit()
+            else:
+                # fallback: quit
+                QApplication.quit()
+
+        start_menu.addAction(QAction("Reboot", self, triggered=action_reboot))
+        start_menu.addAction(QAction("Quitter", self, triggered=lambda: QApplication.quit()))
         start_btn.setMenu(start_menu)
         taskbar_layout.addWidget(start_btn)
 
-        for name in ("Fichier", "Calculatrice", "ManagerCenter", "Météo"):
-            btn = QPushButton(name)
+        # Taskbar quick launch buttons from discovered apps (limited width)
+        for display_name in list(discovered.keys())[:5]:
+            btn = QPushButton(display_name)
             btn.setFixedSize(110, 30)
             btn.setStyleSheet("""
                 QPushButton {
@@ -187,7 +249,7 @@ class MendelDesktop(QWidget):
                 QPushButton:hover { background-color: rgba(255,255,255,0.04); }
                 QPushButton:pressed { background-color: rgba(255,255,255,0.02); }
             """)
-            btn.clicked.connect(lambda _, n=name: self.lancer_app(n))
+            btn.clicked.connect(lambda _, n=display_name: self.lancer_app(n))
             taskbar_layout.addWidget(btn)
 
         taskbar_layout.addStretch()
@@ -209,22 +271,43 @@ class MendelDesktop(QWidget):
     def show_desktop_menu(self, pos):
         menu = QMenu(self)
         menu.setStyleSheet("QMenu{background:#2b2b2b;color:#fff;} QMenu::item:selected{background:#3a3a3a;}")
-        menu.addAction("Fichier", lambda: self.lancer_app("Fichier"))
-        menu.addAction("Calculatrice", lambda: self.lancer_app("Calculatrice"))
-        menu.addAction("ManagerCenter", lambda: self.lancer_app("ManagerCenter"))
-        menu.addAction("Météo", lambda: self.lancer_app("Météo"))
+        discovered = discover_apps(self.apps_dir)
+        for display_name in discovered.keys():
+            menu.addAction(display_name, lambda checked=False, n=display_name: self.lancer_app(n))
+        menu.addSeparator()
+
+        def ctx_reboot():
+            mgr = os.path.join(self.apps_dir, "ManagerTool.py")
+            if os.path.exists(mgr):
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                try:
+                    os.execv(sys.executable, [sys.executable, os.path.abspath(mgr)])
+                except Exception:
+                    QApplication.quit()
+            else:
+                QApplication.quit()
+
+        menu.addAction("Reboot", ctx_reboot)
         menu.exec_(self.mapToGlobal(pos))
 
     def lancer_app(self, name):
-        if name not in APPS:
-            print("Application non mappée:", name); return
-        rel = APPS[name]
+        discovered = discover_apps(self.apps_dir)
+        if name not in discovered:
+            print("Application non trouvée:", name)
+            return
+        rel = discovered[name]
         script_path = os.path.join(self.apps_dir, rel)
         if not os.path.exists(script_path):
             alt = os.path.join(THIS_DIR, rel)
-            if os.path.exists(alt): script_path = alt
+            if os.path.exists(alt):
+                script_path = alt
             else:
-                print(f"Script introuvable pour {name}: {script_path}"); return
+                print(f"Script introuvable pour {name}: {script_path}")
+                return
         try:
             subprocess.Popen([sys.executable, script_path], cwd=self.apps_dir)
         except Exception as e:
@@ -239,6 +322,7 @@ class MendelDesktop(QWidget):
         if hasattr(self, "logo_big"):
             self.logo_big.move(10, 10)
 
+
 def main():
     app = QApplication(sys.argv)
     username = read_username()
@@ -252,6 +336,7 @@ def main():
 
     splash.show_with_fade(on_splash_done)
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()
