@@ -49,6 +49,11 @@ Si vous proposez un patch ou une amélioration, l’équipe se réserve le droit
 
 ---
 
+##Proposez votre patch,application ect...
+**Aaronsdsm@gmail.com**
+
+---
+
 ## Objectif du projet
 
 Mendel vise à améliorer l’expérience utilisateur et la logique interne de QSystem tout en restant compatible avec les workflows existants.  
