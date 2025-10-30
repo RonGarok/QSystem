@@ -49,7 +49,7 @@ Si vous proposez un patch ou une amélioration, l’équipe se réserve le droit
 
 ---
 
-##Proposez votre patch,application ect...
+## Proposez votre patch,application ect...
 **Aaronsdsm@gmail.com**
 
 ---
