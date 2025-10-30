@@ -45,7 +45,6 @@ def discover_apps(apps_dir):
                 continue
             if entry == "__init__.py" or entry.startswith("_"):
                 continue
-            # find friendly name from APPS mapping first
             friendly = None
             for k, v in APPS.items():
                 if os.path.normcase(v) == os.path.normcase(entry):
@@ -203,30 +202,33 @@ class MendelDesktop(QWidget):
 
         start_menu.addSeparator()
 
-        # Reboot action: replace current process with ManagerTool.py using os.execv
+        # Reboot action: replace current process with reboot.py using os.execv
         def action_reboot():
-            mgr_name = "ManagerTool.py"
-            mgr_path = None
-            discovered_local = discover_apps(self.apps_dir)
-            for dname, fname in discovered_local.items():
-                if os.path.normcase(fname) == os.path.normcase(mgr_name) or dname.lower().startswith("manager"):
-                    candidate = os.path.join(self.apps_dir, fname)
-                    if os.path.exists(candidate):
-                        mgr_path = os.path.abspath(candidate)
-                        break
-            if mgr_path:
+            # prefer reboot.py, then ManagerTool.py, else quit
+            preferred = ["reboot.py", "ManagerTool.py"]
+            candidate_path = None
+            disc = discover_apps(self.apps_dir)
+            for pref in preferred:
+                for dname, fname in disc.items():
+                    if os.path.normcase(fname) == os.path.normcase(pref) or dname.lower().startswith(os.path.splitext(pref)[0].lower()):
+                        p = os.path.join(self.apps_dir, fname)
+                        if os.path.exists(p):
+                            candidate_path = os.path.abspath(p)
+                            break
+                if candidate_path:
+                    break
+            if candidate_path:
                 try:
                     sys.stdout.flush()
                     sys.stderr.flush()
                 except Exception:
                     pass
                 try:
-                    os.execv(sys.executable, [sys.executable, mgr_path])
+                    os.execv(sys.executable, [sys.executable, candidate_path])
                 except Exception as e:
                     print("Reboot execv failed:", e)
                     QApplication.quit()
             else:
-                # fallback: quit
                 QApplication.quit()
 
         start_menu.addAction(QAction("Reboot", self, triggered=action_reboot))
@@ -235,7 +237,7 @@ class MendelDesktop(QWidget):
         taskbar_layout.addWidget(start_btn)
 
         # Taskbar quick launch buttons from discovered apps (limited width)
-        for display_name in list(discovered.keys())[:5]:
+        for display_name in list(discovered.keys())[:6]:
             btn = QPushButton(display_name)
             btn.setFixedSize(110, 30)
             btn.setStyleSheet("""
@@ -277,15 +279,27 @@ class MendelDesktop(QWidget):
         menu.addSeparator()
 
         def ctx_reboot():
-            mgr = os.path.join(self.apps_dir, "ManagerTool.py")
-            if os.path.exists(mgr):
+            # same priority: reboot.py then ManagerTool.py, else quit
+            preferred = ["reboot.py", "ManagerTool.py"]
+            candidate = None
+            disc = discover_apps(self.apps_dir)
+            for pref in preferred:
+                for dname, fname in disc.items():
+                    if os.path.normcase(fname) == os.path.normcase(pref) or dname.lower().startswith(os.path.splitext(pref)[0].lower()):
+                        p = os.path.join(self.apps_dir, fname)
+                        if os.path.exists(p):
+                            candidate = os.path.abspath(p)
+                            break
+                if candidate:
+                    break
+            if candidate:
                 try:
                     sys.stdout.flush()
                     sys.stderr.flush()
                 except Exception:
                     pass
                 try:
-                    os.execv(sys.executable, [sys.executable, os.path.abspath(mgr)])
+                    os.execv(sys.executable, [sys.executable, candidate])
                 except Exception:
                     QApplication.quit()
             else:
