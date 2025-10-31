@@ -279,8 +279,8 @@ class MendelDesktop(QWidget):
         menu.addSeparator()
 
         def ctx_reboot():
-            # same priority: reboot.py then ManagerTool.py, else quit
-            preferred = ["reboot.py", "ManagerTool.py"]
+            # same priority: _reboot.py then ManagerTool.py, else quit
+            preferred = ["_reboot.py", "ManagerTool.py"]
             candidate = None
             disc = discover_apps(self.apps_dir)
             for pref in preferred:
