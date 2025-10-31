@@ -204,8 +204,8 @@ class MendelDesktop(QWidget):
 
         # Reboot action: replace current process with reboot.py using os.execv
         def action_reboot():
-            # prefer reboot.py, then ManagerTool.py, else quit
-            preferred = ["reboot.py", "ManagerTool.py"]
+            # prefer _reboot.py, then ManagerTool.py, else quit
+            preferred = ["_reboot.py", "ManagerTool.py"]
             candidate_path = None
             disc = discover_apps(self.apps_dir)
             for pref in preferred:
