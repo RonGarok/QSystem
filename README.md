@@ -12,6 +12,8 @@ La transition vers Mendel nécessite une mise à jour manuelle :
 1. **Importer la branche `Mendel`** dès qu'elle sera disponible.
 2. Installer le **micro-logiciel `QMendel`**.
 
+> Logiciel non disponible pour le moment
+
 ---
 
 ## 🧠 Que fait QMendel ?
