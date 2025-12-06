@@ -12,7 +12,7 @@ from PyQt5.QtGui import QFont, QPixmap
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_ROOT = os.path.normpath(os.path.join(THIS_DIR, "..", "..", "apps"))
 
-# mapping friendly name -> filename
+# mapping friendly name -> filename (kept as hint; dynamic discovery will augment)
 APPS = {
     "Fichier": "Fichier.py",
     "Calculatrice": "Calculator.py",
@@ -33,6 +33,11 @@ def read_username():
 
 
 def discover_apps(apps_dir):
+    """
+    Discover .py files in apps_dir and return dict display_name -> filename.
+    Prefers names from APPS mapping, otherwise uses filename without extension.
+    Ignores __init__.py and files starting with underscore.
+    """
     results = {}
     try:
         for entry in sorted(os.listdir(apps_dir)):
@@ -182,12 +187,13 @@ class MendelDesktop(QWidget):
         start_menu = QMenu(self)
         DARK_MENU_QSS = """
         QMenu { background-color: #2b2b2b; color: #ffffff; border: 1px solid #3d3d3d; padding: 6px; }
-        QMenu::item { padding: 6px 24px; background-color: transparent; }
+        QMenu::item { padding: 6px 24px 6px 24px; background-color: transparent; }
         QMenu::item:selected { background-color: #3a3a3a; }
         QMenu::separator { height: 1px; background: #3d3d3d; margin: 4px 0; }
         """
         start_menu.setStyleSheet(DARK_MENU_QSS)
 
+        # Populate start menu dynamically from apps folder
         discovered = discover_apps(self.apps_dir)
         for display_name, filename in discovered.items():
             action = QAction(display_name, self)
@@ -196,21 +202,70 @@ class MendelDesktop(QWidget):
 
         start_menu.addSeparator()
 
-        # ----- REBOOT
+        # Reboot action: replace current process with _reboot.py using os.execv
         def action_reboot():
-            self.exec_script(["_reboot.py", "ManagerTool.py"])
+            # prefer _reboot.py, then ManagerTool.py, else quit
+            preferred = ["_reboot.py", "ManagerTool.py"]
+            candidate_path = None
+            disc = discover_apps(self.apps_dir)
+            for pref in preferred:
+                for dname, fname in disc.items():
+                    if os.path.normcase(fname) == os.path.normcase(pref) or dname.lower().startswith(os.path.splitext(pref)[0].lower()):
+                        p = os.path.join(self.apps_dir, fname)
+                        if os.path.exists(p):
+                            candidate_path = os.path.abspath(p)
+                            break
+                if candidate_path:
+                    break
+            if candidate_path:
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                try:
+                    os.execv(sys.executable, [sys.executable, candidate_path])
+                except Exception as e:
+                    print("_Reboot execv failed:", e)
+                    QApplication.quit()
+            else:
+                QApplication.quit()
 
-        # ----- SHUTDOWN (remplace Quitter)
+        # Shutdown action: same mechanism but prefer _shutdown.py
         def action_shutdown():
-            self.exec_script(["_shutdown.py"])
+            preferred = ["_shutdown.py"]
+            candidate_path = None
+            disc = discover_apps(self.apps_dir)
+            for pref in preferred:
+                for dname, fname in disc.items():
+                    if os.path.normcase(fname) == os.path.normcase(pref) or dname.lower().startswith(os.path.splitext(pref)[0].lower()):
+                        p = os.path.join(self.apps_dir, fname)
+                        if os.path.exists(p):
+                            candidate_path = os.path.abspath(p)
+                            break
+                if candidate_path:
+                    break
+            if candidate_path:
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                try:
+                    os.execv(sys.executable, [sys.executable, candidate_path])
+                except Exception as e:
+                    print("_Shutdown execv failed:", e)
+                    QApplication.quit()
+            else:
+                QApplication.quit()
 
         start_menu.addAction(QAction("Reboot", self, triggered=action_reboot))
+        # Remplacé: "Quitter" -> "Éteindre" (lance _shutdown.py)
         start_menu.addAction(QAction("Éteindre", self, triggered=action_shutdown))
-
         start_btn.setMenu(start_menu)
         taskbar_layout.addWidget(start_btn)
 
-        # Quick launch
+        # Taskbar quick launch buttons from discovered apps (limited width)
         for display_name in list(discovered.keys())[:6]:
             btn = QPushButton(display_name)
             btn.setFixedSize(110, 30)
@@ -220,8 +275,10 @@ class MendelDesktop(QWidget):
                     color: white;
                     border: 1px solid rgba(255,255,255,0.06);
                     border-radius: 4px;
+                    padding: 2px 8px;
                 }
                 QPushButton:hover { background-color: rgba(255,255,255,0.04); }
+                QPushButton:pressed { background-color: rgba(255,255,255,0.02); }
             """)
             btn.clicked.connect(lambda _, n=display_name: self.lancer_app(n))
             taskbar_layout.addWidget(btn)
@@ -242,47 +299,43 @@ class MendelDesktop(QWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_desktop_menu)
 
-    def exec_script(self, preferred_list):
-        disc = discover_apps(self.apps_dir)
-        candidate = None
-
-        for pref in preferred_list:
-            for dname, fname in disc.items():
-                if os.path.normcase(fname) == os.path.normcase(pref):
-                    p = os.path.join(self.apps_dir, fname)
-                    if os.path.exists(p):
-                        candidate = os.path.abspath(p)
-                        break
-            if candidate:
-                break
-
-        if candidate:
-            try:
-                sys.stdout.flush()
-                sys.stderr.flush()
-            except:
-                pass
-
-            try:
-                os.execv(sys.executable, [sys.executable, candidate])
-            except Exception as e:
-                print("execv failed:", e)
-                QApplication.quit()
-        else:
-            QApplication.quit()
-
     def show_desktop_menu(self, pos):
         menu = QMenu(self)
-        menu.setStyleSheet("QMenu{background:#2b2b2b;color:#fff;}")
-
+        menu.setStyleSheet("QMenu{background:#2b2b2b;color:#fff;} QMenu::item:selected{background:#3a3a3a;}")
         discovered = discover_apps(self.apps_dir)
-        for display_name in discovered:
+        for display_name in discovered.keys():
             menu.addAction(display_name, lambda checked=False, n=display_name: self.lancer_app(n))
-
         menu.addSeparator()
-        menu.addAction("Reboot", lambda: self.exec_script(["_reboot.py", "ManagerTool.py"]))
-        menu.addAction("Éteindre", lambda: self.exec_script(["_shutdown.py"]))
 
+        def ctx_reboot():
+            # same priority: _reboot.py then ManagerTool.py, else quit
+            preferred = ["_reboot.py", "ManagerTool.py"]
+            candidate = None
+            disc = discover_apps(self.apps_dir)
+            for pref in preferred:
+                for dname, fname in disc.items():
+                    if os.path.normcase(fname) == os.path.normcase(pref) or dname.lower().startswith(os.path.splitext(pref)[0].lower()):
+                        p = os.path.join(self.apps_dir, fname)
+                        if os.path.exists(p):
+                            candidate = os.path.abspath(p)
+                            break
+                if candidate:
+                    break
+            if candidate:
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                try:
+                    os.execv(sys.executable, [sys.executable, candidate])
+                except Exception:
+                    QApplication.quit()
+            else:
+                QApplication.quit()
+
+        menu.addAction("Reboot", ctx_reboot)
+        # Optionnel : on garde le menu contextuel minimal (tu peux ajouter "Éteindre" si tu veux)
         menu.exec_(self.mapToGlobal(pos))
 
     def lancer_app(self, name):
@@ -290,9 +343,15 @@ class MendelDesktop(QWidget):
         if name not in discovered:
             print("Application non trouvée:", name)
             return
-
-        script_path = os.path.join(self.apps_dir, discovered[name])
-
+        rel = discovered[name]
+        script_path = os.path.join(self.apps_dir, rel)
+        if not os.path.exists(script_path):
+            alt = os.path.join(THIS_DIR, rel)
+            if os.path.exists(alt):
+                script_path = alt
+            else:
+                print(f"Script introuvable pour {name}: {script_path}")
+                return
         try:
             subprocess.Popen([sys.executable, script_path], cwd=self.apps_dir)
         except Exception as e:
@@ -311,7 +370,8 @@ class MendelDesktop(QWidget):
 def main():
     app = QApplication(sys.argv)
     username = read_username()
-    splash = Splash(f"Bienvenue {username}", duration=1400)
+    splash_text = f"Bienvenue {username}"
+    splash = Splash(splash_text, duration=1400)
 
     desktop = MendelDesktop()
 
