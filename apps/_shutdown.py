@@ -47,7 +47,7 @@ class ShutdownWindow(QWidget):
         # Timer pour le spinner
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_spinner)
-        self.timer.start(100)
+        self.timer.start(5000)
 
         # Timer pour killer les processus Mendel
         QTimer.singleShot(500, self.kill_mendel_processes)  # 0.5s après lancement
