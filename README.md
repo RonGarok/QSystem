@@ -71,3 +71,5 @@ EX :
 System32.py = System32beta.py
 
 
+---
+## Ajout de FireFox et des paramètres Internet 13/12/2025 20:00
