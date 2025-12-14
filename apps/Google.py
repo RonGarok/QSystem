@@ -8,8 +8,7 @@ from PyQt5.QtCore import QUrl
 
 # Style Mendel (sombre)
 APP_STYLE = """
-QMainWindow { background-color: #0b0b0b; color: #fff; }
-QWidget { background-color: #0b0b0b; color: #fff; }
+QMainWindow, QWidget { background-color: #0b0b0b; color: #fff; }
 QPushButton, QLineEdit {
     background-color: #2f2f2f;
     color: #fff;
@@ -25,19 +24,19 @@ QLabel { color: #ddd; }
 class MendelBrowser(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Navigateur Mendel")
+        self.setWindowTitle("Google")
         self.setMinimumSize(960, 640)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # Barre d'URL
+        # Barre d'URL / recherche
         bar = QHBoxLayout()
         bar.setSpacing(6)
 
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("https://vornak.city")
+        self.url_input.setPlaceholderText("Tapez une adresse ou des mots-clés…")
         self.url_input.returnPressed.connect(self.load_url)
         bar.addWidget(self.url_input, 1)
 
@@ -49,7 +48,7 @@ class MendelBrowser(QWidget):
 
         # Vue Web
         self.web = QWebEngineView()
-        self.web.setUrl(QUrl("https://www.mozilla.org"))
+        self.web.setUrl(QUrl("https://google.fr"))  # page par défaut
         layout.addWidget(self.web, 1)
 
         # Status
@@ -57,12 +56,19 @@ class MendelBrowser(QWidget):
         layout.addWidget(self.status)
 
     def load_url(self):
-        url = self.url_input.text().strip()
-        if not url:
-            self.status.setText("URL vide")
+        text = self.url_input.text().strip()
+        if not text:
+            self.status.setText("Entrée vide")
             return
-        if not url.startswith("http"):
-            url = "https://" + url
+
+        # Détection URL vs recherche
+        if text.startswith("http://") or text.startswith("https://") or "." in text:
+            url = text if text.startswith("http") else "https://" + text
+        else:
+            # Transforme en recherche Firefox/Google
+            query = QUrl.toPercentEncoding(text).data().decode()
+            url = f"https://www.google.com/search?q={query}"
+
         self.web.setUrl(QUrl(url))
         self.status.setText(f"Chargement : {url}")
 
