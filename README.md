@@ -23,6 +23,14 @@ Le micro-logiciel **QMendel**, prévu pour faciliter la migration des fichiers e
 
 ---
 
+## Dépendance
+- psutil
+- PyQt5
+- PyQtWebEngine
+- network-manager
+
+---
+
 ## Fonctionnalités principales
 
 - **Gestion des utilisateurs** : profils et permissions configurables.  
